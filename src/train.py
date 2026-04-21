@@ -18,6 +18,8 @@ def parse_args():
     parser.add_argument("--num_epoch",      type=int, default=1)
     parser.add_argument("--batch_size",     type=int, default=1024)
     parser.add_argument("--use_cuda",       action="store_true", default=False)
+    parser.add_argument("--no_visual",      action="store_true", default=False,
+                        help="Disable visual features (ablation study)")
     return parser.parse_args()
 
 gmf_config = {'alias': 'gmf_factor8neg4-implict',
@@ -108,10 +110,13 @@ ml1m_rating = interactions[['userId', 'itemId', 'rating', 'timestamp']]
 print('Range of userId is [{}, {}]'.format(ml1m_rating.userId.min(), ml1m_rating.userId.max()))
 print('Range of itemId is [{}, {}]'.format(ml1m_rating.itemId.min(), ml1m_rating.itemId.max()))
 
-# Load visual embeddings và remap key từ item_id_original → itemId reindex
-raw_visual = torch.load(os.path.join(args.data_dir, 'visual_embeddings.pt'), weights_only=False)
-orig_to_new = dict(zip(item_id_map['item'], item_id_map['itemId']))
-visual_embeddings = {orig_to_new[k]: v for k, v in raw_visual.items() if k in orig_to_new}
+# Load visual embeddings
+if args.no_visual:
+    visual_embeddings = {}
+else:
+    raw_visual   = torch.load(os.path.join(args.data_dir, 'visual_embeddings.pt'), weights_only=False)
+    orig_to_new  = dict(zip(item_id_map['item'], item_id_map['itemId']))
+    visual_embeddings = {orig_to_new[k]: v for k, v in raw_visual.items() if k in orig_to_new}
 
 # DataLoader for training
 sample_generator = SampleGenerator(ratings=ml1m_rating, visual_embeddings=visual_embeddings)
@@ -124,6 +129,7 @@ config['num_items']   = ml1m_rating['itemId'].nunique()
 config['num_epoch']   = args.num_epoch
 config['batch_size']  = args.batch_size
 config['use_cuda']    = args.use_cuda
+config['visual_dim']  = 0 if args.no_visual else 768
 config['model_dir']   = os.path.join(args.checkpoint_dir, '{}_Epoch{}_HR{:.4f}_NDCG{:.4f}.model')
 
 engine = NeuMFEngine(config)

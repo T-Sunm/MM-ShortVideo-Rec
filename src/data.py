@@ -28,7 +28,7 @@ class UserItemRatingDataset(Dataset):
 
 
 class VisualLookup:
-    """Lazy visual embedding lookup indexed by item tensor (supports slice)."""
+    """Lazy visual embedding lookup indexed by item tensor"""
 
     def __init__(self, items, visual_embeddings):
         self.items             = items

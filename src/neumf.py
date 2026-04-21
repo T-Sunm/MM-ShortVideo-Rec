@@ -24,12 +24,12 @@ class NeuMF(torch.nn.Module):
         for idx, (in_size, out_size) in enumerate(zip(config['layers'][:-1], config['layers'][1:])):
             self.fc_layers.append(torch.nn.Linear(in_size, out_size))
 
-        # Early Concatenation fusion layers
-        # Input: concat(id_emb, visual) = latent_dim + visual_dim
-        # Output: latent_dim  →  shape đầu vào MLP vẫn giữ nguyên
-        visual_dim = config['visual_dim']
-        self.fusion_item_mlp = nn.Linear(self.latent_dim_mlp + visual_dim, self.latent_dim_mlp)
-        self.fusion_item_mf  = nn.Linear(self.latent_dim_mf  + visual_dim, self.latent_dim_mf)
+        # Early Concatenation fusion layers (only when visual features are enabled)
+        visual_dim = config.get('visual_dim', 768)
+        self.use_visual = visual_dim > 0
+        if self.use_visual:
+            self.fusion_item_mlp = nn.Linear(self.latent_dim_mlp + visual_dim, self.latent_dim_mlp)
+            self.fusion_item_mf  = nn.Linear(self.latent_dim_mf  + visual_dim, self.latent_dim_mf)
 
         self.affine_output = torch.nn.Linear(in_features=config['layers'][-1] + config['latent_dim_mf'], out_features=1)
         self.logistic = torch.nn.Sigmoid()
@@ -46,12 +46,14 @@ class NeuMF(torch.nn.Module):
         user_embedding_mf  = self.embedding_user_mf(user_indices)
 
         # Early Concatenation: [id_emb | visual] → fusion_layer → latent_dim
-        item_id_mlp = self.embedding_item_mlp(item_indices)               # [B, latent_dim_mlp]
-        item_id_mf  = self.embedding_item_mf(item_indices)                # [B, latent_dim_mf]
-        item_embedding_mlp = self.fusion_item_mlp(
-            torch.cat([item_id_mlp, visual_features], dim=-1))            # [B, latent_dim_mlp]
-        item_embedding_mf  = self.fusion_item_mf(
-            torch.cat([item_id_mf,  visual_features], dim=-1))            # [B, latent_dim_mf]
+        item_id_mlp = self.embedding_item_mlp(item_indices)
+        item_id_mf  = self.embedding_item_mf(item_indices)
+        if self.use_visual:
+            item_embedding_mlp = self.fusion_item_mlp(torch.cat([item_id_mlp, visual_features], dim=-1))
+            item_embedding_mf  = self.fusion_item_mf(torch.cat([item_id_mf,  visual_features], dim=-1))
+        else:
+            item_embedding_mlp = item_id_mlp
+            item_embedding_mf  = item_id_mf
 
         mlp_vector = torch.cat([user_embedding_mlp, item_embedding_mlp], dim=-1)
         mf_vector  = torch.mul(user_embedding_mf, item_embedding_mf)

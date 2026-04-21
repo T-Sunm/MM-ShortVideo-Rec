@@ -52,6 +52,11 @@ df_5k = df[df['item'].isin(valid_5k_items)]
 # lọc tiếp giữ lại những user có tối thiểu 2 tương tác.
 user_counts = df_5k['user'].value_counts()
 valid_users = user_counts[user_counts >= 2].index
+
+# Cắt bớt còn tối đa 20,000 users (ưu tiên lấy những user có nhiều tương tác nhất)
+if len(valid_users) > 20000:
+    valid_users = valid_users[:20000]
+
 df_5k = df_5k[df_5k['user'].isin(valid_users)]
 
 print("\n--- SAU KHI LỌC ---")
