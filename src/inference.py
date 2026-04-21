@@ -27,6 +27,8 @@ def main():
     # 1. Tải và build mapping (để khớp với index lúc train model)
     print(f"Loading data from {args.data_dir}...")
     interactions = pd.read_csv(os.path.join(args.data_dir, 'pairs.csv'))
+    interactions['user'] = interactions['user'].astype(str)
+    interactions['item'] = interactions['item'].astype(str)
 
     # Reindex userId
     user_id_map = interactions[['user']].drop_duplicates().reset_index(drop=True)
