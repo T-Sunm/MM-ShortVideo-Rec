@@ -78,16 +78,17 @@ class SampleGenerator:
         )
         interact_status['negative_items']   = interact_status['interacted_items'].apply(lambda x: self.item_pool - x)
         interact_status['negative_samples'] = interact_status['negative_items'].apply(lambda x: random.sample(list(x), 99))
-        return interact_status[['userId', 'negative_items', 'negative_samples']]
+        # Store as dict for O(1) lookup — avoids storing large sets inside DataFrame and costly merge
+        self._neg_items = dict(zip(interact_status['userId'], interact_status['negative_items']))
+        return interact_status[['userId', 'negative_samples']]
 
     def instance_a_train_loader(self, num_negatives, batch_size):
         users, items, ratings = [], [], []
-        train = pd.merge(self.train_ratings, self.negatives[['userId', 'negative_items']], on='userId')
-        train['negatives'] = train['negative_items'].apply(lambda x: random.sample(list(x), num_negatives))
-        for row in train.itertuples():
-            users.append(int(row.userId)); items.append(int(row.itemId)); ratings.append(float(row.rating))
-            for neg in row.negatives:
-                users.append(int(row.userId)); items.append(int(neg)); ratings.append(0.0)
+        for row in self.train_ratings.itertuples():
+            uid, iid = int(row.userId), int(row.itemId)
+            users.append(uid); items.append(iid); ratings.append(float(row.rating))
+            for neg in random.sample(list(self._neg_items[uid]), num_negatives):
+                users.append(uid); items.append(int(neg)); ratings.append(0.0)
         dataset = UserItemRatingDataset(
             user_tensor=torch.LongTensor(users),
             item_tensor=torch.LongTensor(items),
