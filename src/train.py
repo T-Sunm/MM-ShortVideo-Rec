@@ -1,3 +1,5 @@
+import os
+import argparse
 import torch
 import pandas as pd
 import numpy as np
@@ -5,6 +7,18 @@ from gmf import GMFEngine
 from mlp import MLPEngine
 from neumf import NeuMFEngine
 from data import SampleGenerator
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train NeuMF with visual features")
+    parser.add_argument("--data_dir",       type=str, default="data/microlens-5k",
+                        help="Path to dataset directory")
+    parser.add_argument("--checkpoint_dir", type=str, default="checkpoints",
+                        help="Directory to save model checkpoints")
+    parser.add_argument("--num_epoch",      type=int, default=1)
+    parser.add_argument("--batch_size",     type=int, default=1024)
+    parser.add_argument("--use_cuda",       action="store_true", default=False)
+    return parser.parse_args()
 
 gmf_config = {'alias': 'gmf_factor8neg4-implict',
               'num_epoch': 200,
@@ -71,10 +85,10 @@ neumf_config = {'alias': 'neumf_factor8neg4',
                 'visual_dim': 768,
                 }
 
+args = parse_args()
+
 # Load Data
-# Đường dẫn đã được điều chỉnh theo plan (data nằm ngang cấp src)
-data_dir = 'data/microlens-5k/pairs.csv'
-interactions = pd.read_csv(data_dir)
+interactions = pd.read_csv(os.path.join(args.data_dir, 'pairs.csv'))
 
 # Tiền xử lý MicroLens: user, item, timestamp
 interactions['rating'] = 1.0  # Implicit feedback
@@ -95,7 +109,7 @@ print('Range of userId is [{}, {}]'.format(ml1m_rating.userId.min(), ml1m_rating
 print('Range of itemId is [{}, {}]'.format(ml1m_rating.itemId.min(), ml1m_rating.itemId.max()))
 
 # Load visual embeddings và remap key từ item_id_original → itemId reindex
-raw_visual = torch.load('data/microlens-5k/visual_embeddings.pt', weights_only=False)
+raw_visual = torch.load(os.path.join(args.data_dir, 'visual_embeddings.pt'), weights_only=False)
 orig_to_new = dict(zip(item_id_map['item'], item_id_map['itemId']))
 visual_embeddings = {orig_to_new[k]: v for k, v in raw_visual.items() if k in orig_to_new}
 
@@ -105,9 +119,12 @@ evaluate_data = sample_generator.evaluate_data
 
 # Specify the exact model
 config = neumf_config
-# Tự động cập nhật số lượng user/item vào config
-config['num_users'] = ml1m_rating['userId'].nunique()
-config['num_items'] = ml1m_rating['itemId'].nunique()
+config['num_users']   = ml1m_rating['userId'].nunique()
+config['num_items']   = ml1m_rating['itemId'].nunique()
+config['num_epoch']   = args.num_epoch
+config['batch_size']  = args.batch_size
+config['use_cuda']    = args.use_cuda
+config['model_dir']   = os.path.join(args.checkpoint_dir, '{}_Epoch{}_HR{:.4f}_NDCG{:.4f}.model')
 
 engine = NeuMFEngine(config)
 for epoch in range(config['num_epoch']):

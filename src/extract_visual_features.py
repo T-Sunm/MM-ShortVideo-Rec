@@ -1,3 +1,4 @@
+import argparse
 import os
 import torch
 import pandas as pd
@@ -5,11 +6,16 @@ from PIL import Image
 from tqdm import tqdm
 from transformers import AutoImageProcessor, AutoModel
 
-PAIRS_CSV   = r"E:\AIO\Project\MM-ShortVideo-Rec\data\microlens-5k\pairs.csv"
-COVERS_DIR  = r"E:\AIO\Project\MM-ShortVideo-Rec\data\microlens-50k\covers"
-OUTPUT_PATH = r"E:\AIO\Project\MM-ShortVideo-Rec\data\microlens-5k\visual_embeddings.pt"
-MODEL_NAME  = "microsoft/swin-tiny-patch4-window7-224"
-VISUAL_DIM  = 768
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Extract visual features using Swin Transformer")
+    parser.add_argument("--data_dir", type=str, default=r"E:\AIO\Project\MM-ShortVideo-Rec\data\microlens-5k",
+                        help="Path to dataset directory (microlens-5k)")
+    return parser.parse_args()
+
+
+MODEL_NAME = "microsoft/swin-tiny-patch4-window7-224"
+VISUAL_DIM = 768
 
 def extract(model, processor, img_path: str, device: str) -> torch.Tensor:
     try:
@@ -20,10 +26,15 @@ def extract(model, processor, img_path: str, device: str) -> torch.Tensor:
         return torch.zeros(VISUAL_DIM)
 
 def main():
+    args = parse_args()
+    pairs_csv   = os.path.join(args.data_dir, "pairs.csv")
+    covers_dir  = os.path.join(args.data_dir, "covers")
+    output_path = os.path.join(args.data_dir, "visual_embeddings.pt")
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Device: {device}")
 
-    unique_items = pd.read_csv(PAIRS_CSV)['item'].unique()
+    unique_items = pd.read_csv(pairs_csv)['item'].unique()
     print(f"Items to process: {len(unique_items)}")
 
     processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
@@ -32,11 +43,11 @@ def main():
     visual_embeddings = {}
     with torch.no_grad():
         for item_id in tqdm(unique_items, desc="Extracting"):
-            img_path = os.path.join(COVERS_DIR, f"{item_id}.jpg")
+            img_path = os.path.join(covers_dir, f"{item_id}.jpg")
             visual_embeddings[item_id] = extract(model, processor, img_path, device)
 
-    torch.save(visual_embeddings, OUTPUT_PATH)
-    print(f"Saved {len(visual_embeddings)} embeddings → {OUTPUT_PATH}")
+    torch.save(visual_embeddings, output_path)
+    print(f"Saved {len(visual_embeddings)} embeddings → {output_path}")
 
 if __name__ == "__main__":
     main()

@@ -1,8 +1,26 @@
-import pandas as pd
+import argparse
 import os
+import shutil
 
-data_dir = r"e:\AIO\Project\MM-ShortVideo-Rec\data\microlens-50k"
+import pandas as pd
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Subsample microlens-50k dataset to 5k items")
+    parser.add_argument("--src_dir", type=str, default=r"e:\AIO\Project\MM-ShortVideo-Rec\data\microlens-50k",
+                        help="Path to source dataset directory (microlens-50k)")
+    parser.add_argument("--dst_dir", type=str, default=r"e:\AIO\Project\MM-ShortVideo-Rec\data\microlens-5k",
+                        help="Path to output dataset directory (microlens-5k)")
+    return parser.parse_args()
+
+
+args = parse_args()
+
+data_dir = args.src_dir
+new_data_dir = args.dst_dir
 pairs_path = os.path.join(data_dir, "pairs.csv")
+titles_path = os.path.join(data_dir, "titles.csv")
+likes_path = os.path.join(data_dir, "likes_and_views.txt")
 
 # Đọc toàn bộ tương tác
 df = pd.read_csv(pairs_path)
@@ -26,7 +44,7 @@ for item_id in item_counts.index:
 if len(valid_5k_items) < 5000:
     print(f"Cảnh báo: Chỉ tìm thấy {len(valid_5k_items)} items có ảnh!")
 else:
-    print("Đã gom đủ 5,000 items có ảnh!")
+    print("Đã gom đủ 5000 items có ảnh!")
 
 df_5k = df[df['item'].isin(valid_5k_items)]
 
@@ -41,9 +59,30 @@ print(f"Tổng số tương tác (mới): {len(df_5k)}")
 print(f"Tổng số User (mới): {df_5k['user'].nunique()}")
 print(f"Tổng số Item/Video (mới): {df_5k['item'].nunique()}")
 
-# Lưu ra thư mục dataset mới "microlens-5k"
-new_data_dir = r"e:\AIO\Project\MM-ShortVideo-Rec\data\microlens-5k"
+# Cập nhật danh sách item thực sự có trong tập 5k sau khi lọc user
+final_items = set(df_5k['item'].unique())
+
+# Đọc và lọc các metadata
+df_titles = pd.read_csv(titles_path)
+df_likes = pd.read_csv(likes_path, sep='\t', header=None, names=['item', 'likes', 'views'])
+
+df_titles_5k = df_titles[df_titles['item'].isin(final_items)]
+df_likes_5k = df_likes[df_likes['item'].isin(final_items)]
+
+# Lưu ra thư mục dataset mới
 os.makedirs(new_data_dir, exist_ok=True)
 df_5k.to_csv(os.path.join(new_data_dir, "pairs.csv"), index=False)
+df_titles_5k.to_csv(os.path.join(new_data_dir, "titles.csv"), index=False)
+df_likes_5k.to_csv(os.path.join(new_data_dir, "likes_and_views.txt"), sep='\t', header=False, index=False)
 
-print(f"\nĐã xuất dataset 5k thành công tại: {new_data_dir}")
+# Copy ảnh bìa sang folder mới
+new_covers_dir = os.path.join(new_data_dir, "covers")
+os.makedirs(new_covers_dir, exist_ok=True)
+print("Đang copy ảnh bìa sang folder mới...")
+for item_id in final_items:
+    src_path = os.path.join(covers_dir, f"{item_id}.jpg")
+    dst_path = os.path.join(new_covers_dir, f"{item_id}.jpg")
+    if os.path.exists(src_path):
+        shutil.copy2(src_path, dst_path)
+
+print(f"\nĐã xuất toàn bộ dataset 5k (bao gồm metadata và ảnh) thành công tại: {new_data_dir}")
