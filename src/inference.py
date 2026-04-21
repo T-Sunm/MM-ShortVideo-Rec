@@ -110,6 +110,7 @@ def main():
     # 8. Lookup Titles
     try:
         titles_df = pd.read_csv(os.path.join(args.data_dir, 'titles.csv'))
+        titles_df['item'] = titles_df['item'].astype(str)
         # Create dict: internal_itemId -> title
         item_to_orig = dict(zip(item_id_map['itemId'], item_id_map['item']))
         orig_to_title = dict(zip(titles_df['item'], titles_df.get('title', titles_df.get('text', 'Unknown Title'))))
