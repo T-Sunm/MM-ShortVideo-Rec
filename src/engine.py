@@ -23,12 +23,19 @@ class Engine(object):
         # implicit feedback
         self.crit = torch.nn.BCELoss()
 
-    def train_single_batch(self, users, items, ratings, visuals):
+    def train_single_batch(self, users, seqs, items, ratings, visuals):
         assert hasattr(self, 'model'), 'Please specify the exact model !'
         if self.config['use_cuda'] is True:
-            users, items, ratings, visuals = users.cuda(), items.cuda(), ratings.cuda(), visuals.cuda()
+            users, seqs, items, ratings, visuals = users.cuda(), seqs.cuda(), items.cuda(), ratings.cuda(), visuals.cuda()
         self.opt.zero_grad()
-        ratings_pred = self.model(users, items, visuals)
+        
+        # Sửa để truyền thêm seqs vào model
+        # Các model không dùng seq (như NeuMF gốc) cần được sửa để có thể nhận param seqs hoặc dùng **kwargs
+        try:
+            ratings_pred = self.model(users, seqs, items, visuals)
+        except TypeError:
+            ratings_pred = self.model(users, items, visuals) # Fallback cho model cũ
+            
         loss = self.crit(ratings_pred.view(-1), ratings)
         loss.backward()
         self.opt.step()
@@ -40,8 +47,8 @@ class Engine(object):
         total_loss = 0
         for batch_id, batch in enumerate(train_loader):
             assert isinstance(batch[0], torch.LongTensor)
-            user, item, rating, visual = batch[0], batch[1], batch[2].float(), batch[3]
-            loss = self.train_single_batch(user, item, rating, visual)
+            user, seq, item, rating, visual = batch[0], batch[1], batch[2], batch[3].float(), batch[4]
+            loss = self.train_single_batch(user, seq, item, rating, visual)
             print('[Training Epoch {}] Batch {}, Loss {}'.format(epoch_id, batch_id, loss))
             total_loss += loss
         self._writer.add_scalar('model/loss', total_loss, epoch_id)
@@ -50,52 +57,55 @@ class Engine(object):
         assert hasattr(self, 'model'), 'Please specify the exact model !'
         self.model.eval()
         with torch.no_grad():
-            test_users, test_items, test_visuals = evaluate_data[0], evaluate_data[1], evaluate_data[2]
-            negative_users, negative_items, negative_visuals = evaluate_data[3], evaluate_data[4], evaluate_data[5]
-            if self.config['use_cuda'] is True:
-                # Không được chuyển toàn bộ lên GPU tại đây vì negative_visuals rất lớn (hàng triệu vector 768D)
-                # Chỉ xử lý trên từng batch ở vòng lặp dưới
-                pass
+            test_users, test_seqs, test_items, test_visuals = evaluate_data[0], evaluate_data[1], evaluate_data[2], evaluate_data[3]
+            negative_users, negative_seqs, negative_items, negative_visuals = evaluate_data[4], evaluate_data[5], evaluate_data[6], evaluate_data[7]
 
-        if self.config['use_bachify_eval'] == False:
-            test_scores     = self.model(test_users, test_items, test_visuals)
-            negative_scores = self.model(negative_users, negative_items, negative_visuals)
-        else:
-            test_scores     = []
-            negative_scores = []
-            bs = self.config['batch_size']
-            for start_idx in range(0, len(test_users), bs):
-                end_idx = min(start_idx + bs, len(test_users))
-                bu = test_users[start_idx:end_idx]
-                bi = test_items[start_idx:end_idx]
-                bv = test_visuals[start_idx:end_idx]
-                if self.config['use_cuda']:
-                    bu, bi, bv = bu.cuda(), bi.cuda(), bv.cuda()
-                test_scores.append(self.model(bu, bi, bv).cpu())
+            if self.config['use_bachify_eval'] == False:
+                try:
+                    test_scores     = self.model(test_users, test_seqs, test_items, test_visuals)
+                    negative_scores = self.model(negative_users, negative_seqs, negative_items, negative_visuals)
+                except TypeError:
+                    test_scores     = self.model(test_users, test_items, test_visuals)
+                    negative_scores = self.model(negative_users, negative_items, negative_visuals)
+            else:
+                test_scores     = []
+                negative_scores = []
+                bs = self.config['batch_size']
+                for start_idx in range(0, len(test_users), bs):
+                    end_idx = min(start_idx + bs, len(test_users))
+                    bu, bseq, bi, bv = test_users[start_idx:end_idx], test_seqs[start_idx:end_idx], test_items[start_idx:end_idx], test_visuals[start_idx:end_idx]
+                    if self.config['use_cuda']:
+                        bu, bseq, bi, bv = bu.cuda(), bseq.cuda(), bi.cuda(), bv.cuda()
+                    try:
+                        test_scores.append(self.model(bu, bseq, bi, bv).cpu())
+                    except TypeError:
+                        test_scores.append(self.model(bu, bi, bv).cpu())
 
-            for start_idx in tqdm(range(0, len(negative_users), bs), desc="Eval Negatives"):
-                end_idx = min(start_idx + bs, len(negative_users))
-                bu = negative_users[start_idx:end_idx]
-                bi = negative_items[start_idx:end_idx]
-                bv = negative_visuals[start_idx:end_idx]
-                if self.config['use_cuda']:
-                    bu, bi, bv = bu.cuda(), bi.cuda(), bv.cuda()
-                negative_scores.append(self.model(bu, bi, bv).cpu())
-            
-            test_scores     = torch.concatenate(test_scores, dim=0)
-            negative_scores = torch.concatenate(negative_scores, dim=0)
+                for start_idx in tqdm(range(0, len(negative_users), bs), desc="Eval Negatives"):
+                    end_idx = min(start_idx + bs, len(negative_users))
+                    bu, bseq, bi, bv = negative_users[start_idx:end_idx], negative_seqs[start_idx:end_idx], negative_items[start_idx:end_idx], negative_visuals[start_idx:end_idx]
+                    if self.config['use_cuda']:
+                        bu, bseq, bi, bv = bu.cuda(), bseq.cuda(), bi.cuda(), bv.cuda()
+                    try:
+                        negative_scores.append(self.model(bu, bseq, bi, bv).cpu())
+                    except TypeError:
+                        negative_scores.append(self.model(bu, bi, bv).cpu())
 
-            self._metron.subjects = [test_users.data.view(-1).tolist(),
-                                 test_items.data.view(-1).tolist(),
-                                 test_scores.data.view(-1).tolist(),
-                                 negative_users.data.view(-1).tolist(),
-                                 negative_items.data.view(-1).tolist(),
-                                 negative_scores.data.view(-1).tolist()]
+                test_scores     = torch.concatenate(test_scores, dim=0)
+                negative_scores = torch.concatenate(negative_scores, dim=0)
+
+                self._metron.subjects = [test_users.data.view(-1).tolist(),
+                                     test_items.data.view(-1).tolist(),
+                                     test_scores.data.view(-1).tolist(),
+                                     negative_users.data.view(-1).tolist(),
+                                     negative_items.data.view(-1).tolist(),
+                                     negative_scores.data.view(-1).tolist()]
         hit_ratio, ndcg = self._metron.cal_hit_ratio(), self._metron.cal_ndcg()
         self._writer.add_scalar('performance/HR', hit_ratio, epoch_id)
         self._writer.add_scalar('performance/NDCG', ndcg, epoch_id)
         print('[Evluating Epoch {}] HR = {:.4f}, NDCG = {:.4f}'.format(epoch_id, hit_ratio, ndcg))
         return hit_ratio, ndcg
+
 
     def save(self, alias, epoch_id, hit_ratio, ndcg):
         assert hasattr(self, 'model'), 'Please specify the exact model !'

@@ -10,10 +10,11 @@ VISUAL_DIM = 768
 
 
 class UserItemRatingDataset(Dataset):
-    """<user, item, rating, visual> dataset with lazy visual lookup."""
+    """<user, seq, item, rating, visual> dataset with lazy visual lookup."""
 
-    def __init__(self, user_tensor, item_tensor, target_tensor, visual_embeddings):
+    def __init__(self, user_tensor, seq_tensor, item_tensor, target_tensor, visual_embeddings):
         self.user_tensor      = user_tensor
+        self.seq_tensor       = seq_tensor
         self.item_tensor      = item_tensor
         self.target_tensor    = target_tensor
         self.visual_embeddings = visual_embeddings
@@ -21,7 +22,7 @@ class UserItemRatingDataset(Dataset):
     def __getitem__(self, index):
         item_id = self.item_tensor[index].item()
         visual  = self.visual_embeddings.get(item_id, torch.zeros(VISUAL_DIM))
-        return self.user_tensor[index], self.item_tensor[index], self.target_tensor[index], visual
+        return self.user_tensor[index], self.seq_tensor[index], self.item_tensor[index], self.target_tensor[index], visual
 
     def __len__(self):
         return self.user_tensor.size(0)
@@ -45,17 +46,22 @@ class VisualLookup:
 
 
 class SampleGenerator:
-    """Construct dataset for NCF."""
+    """Construct dataset for NCF with sequence support."""
 
-    def __init__(self, ratings: pd.DataFrame, visual_embeddings: dict):
-        assert {'userId', 'itemId', 'rating'}.issubset(ratings.columns)
+    def __init__(self, ratings: pd.DataFrame, visual_embeddings: dict, maxlen: int = 50):
+        assert {'userId', 'itemId', 'rating', 'timestamp'}.issubset(ratings.columns)
 
         self.ratings           = ratings
         self.visual_embeddings = visual_embeddings
+        self.maxlen            = maxlen
         self.user_pool         = set(ratings['userId'].unique())
         self.item_pool         = set(ratings['itemId'].unique())
         self.negatives         = self._sample_negative(ratings)
         self.train_ratings, self.test_ratings = self._split_loo(self._binarize(ratings))
+        
+        # Build user history sorted by timestamp for sequence generation
+        sorted_ratings = ratings.sort_values(['userId', 'timestamp'], ascending=[True, True])
+        self.user_history = sorted_ratings.groupby('userId')['itemId'].apply(list).to_dict()
 
     def _binarize(self, ratings):
         ratings = ratings.copy()
@@ -82,15 +88,33 @@ class SampleGenerator:
         self._neg_items = dict(zip(interact_status['userId'], interact_status['negative_items']))
         return interact_status[['userId', 'negative_samples']]
 
+    def _get_seq(self, uid, target_iid):
+        """Get sequence of items viewed before target_iid (padded with 0s at the left)."""
+        hist = self.user_history.get(uid, [])
+        try:
+            idx = hist.index(target_iid)
+            seq = hist[:idx] # Items before the target item
+        except ValueError:
+            seq = hist       # Fallback if item not found (e.g. negative item, or test item)
+            
+        # Pad or truncate
+        seq = seq[-self.maxlen:]
+        padded_seq = [0] * (self.maxlen - len(seq)) + seq
+        return padded_seq
+
     def instance_a_train_loader(self, num_negatives, batch_size):
-        users, items, ratings = [], [], []
+        users, seqs, items, ratings = [], [], [], []
         for row in self.train_ratings.itertuples():
             uid, iid = int(row.userId), int(row.itemId)
-            users.append(uid); items.append(iid); ratings.append(float(row.rating))
+            seq = self._get_seq(uid, iid)
+            
+            users.append(uid); seqs.append(seq); items.append(iid); ratings.append(float(row.rating))
             for neg in random.sample(list(self._neg_items[uid]), num_negatives):
-                users.append(uid); items.append(int(neg)); ratings.append(0.0)
+                users.append(uid); seqs.append(seq); items.append(int(neg)); ratings.append(0.0)
+        
         dataset = UserItemRatingDataset(
             user_tensor=torch.LongTensor(users),
+            seq_tensor=torch.LongTensor(seqs),
             item_tensor=torch.LongTensor(items),
             target_tensor=torch.FloatTensor(ratings),
             visual_embeddings=self.visual_embeddings,
@@ -100,16 +124,30 @@ class SampleGenerator:
     @property
     def evaluate_data(self):
         test = pd.merge(self.test_ratings, self.negatives[['userId', 'negative_samples']], on='userId')
-        test_users, test_items, neg_users, neg_items = [], [], [], []
+        test_users, test_seqs, test_items, neg_users, neg_seqs, neg_items = [], [], [], [], [], []
         for row in test.itertuples():
-            test_users.append(int(row.userId))
-            test_items.append(int(row.itemId))
+            uid, iid = int(row.userId), int(row.itemId)
+            # Dùng tất cả lịch sử (không bao gồm test_item)
+            hist = self.user_history.get(uid, [])
+            try:
+                idx = hist.index(iid)
+                seq = hist[:idx]
+            except:
+                seq = hist[:-1] # test item usually at the end
+            seq = seq[-self.maxlen:]
+            padded_seq = [0] * (self.maxlen - len(seq)) + seq
+            
+            test_users.append(uid)
+            test_seqs.append(padded_seq)
+            test_items.append(iid)
             for neg in row.negative_samples:
-                neg_users.append(int(row.userId))
+                neg_users.append(uid)
+                neg_seqs.append(padded_seq)
                 neg_items.append(int(neg))
+                
         test_items_t = torch.LongTensor(test_items)
         neg_items_t  = torch.LongTensor(neg_items)
         return [
-            torch.LongTensor(test_users), test_items_t, VisualLookup(test_items_t, self.visual_embeddings),
-            torch.LongTensor(neg_users),  neg_items_t,  VisualLookup(neg_items_t,  self.visual_embeddings),
+            torch.LongTensor(test_users), torch.LongTensor(test_seqs), test_items_t, VisualLookup(test_items_t, self.visual_embeddings),
+            torch.LongTensor(neg_users),  torch.LongTensor(neg_seqs),  neg_items_t,  VisualLookup(neg_items_t,  self.visual_embeddings),
         ]

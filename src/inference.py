@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 
 from neumf import NeuMF
+from seqneumf import SeqNeuMF
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Inference script to get video recommendations for a specific user.")
@@ -19,6 +20,10 @@ def parse_args():
     parser.add_argument("--use_cuda",       action="store_true", default=False)
     parser.add_argument("--no_visual",      action="store_true", default=False,
                         help="Disable visual features (ablation study)")
+                        
+    # SeqNeuMF arguments
+    parser.add_argument("--use_seq_user",   action="store_true", default=False,
+                        help="Use sequence-based user representation (SeqNeuMF)")
     return parser.parse_args()
 
 def main():
@@ -47,8 +52,15 @@ def main():
 
     internal_user_id = user_id_map[user_id_map['user'] == args.user_id]['userId'].iloc[0]
     
-    # 3. Lấy ra những items mà user này đã tương tác
+    # 3. Lấy ra những items mà user này đã tương tác (theo thứ tự timestamp nếu dataframe đã sort)
     user_history = interactions[interactions['userId'] == internal_user_id]['itemId'].tolist()
+    
+    # Chuẩn bị Sequence cho model SeqNeuMF
+    if args.use_seq_user:
+        maxlen = 50 # Mặc định như trong file train.py
+        seq = user_history[-maxlen:]
+        padded_seq = [0] * (maxlen - len(seq)) + seq
+        print(f"Built user sequence length {len(seq)} (padded to {maxlen})")
     
     # Những items có thể đem ra để recommend là những items có trong item_pool mà user chưa xem
     all_item_ids = item_id_map['itemId'].tolist()
@@ -76,7 +88,19 @@ def main():
         'weight_init_gaussian': False # Not initing because we are loading checkpoint
     }
 
-    model = NeuMF(config)
+    if args.use_seq_user:
+        config.update({
+            'use_seq_user': True,
+            'maxlen': 50,
+            'seq_hidden_units': 50,
+            'num_heads': 1,
+            'num_blocks': 2,
+            'dropout_rate': 0.0 # eval mode
+        })
+        model = SeqNeuMF(config)
+    else:
+        model = NeuMF(config)
+        
     print(f"Loading checkpoint from: {args.checkpoint}")
     device = torch.device('cuda' if args.use_cuda and torch.cuda.is_available() else 'cpu')
     model.load_state_dict(torch.load(args.checkpoint, map_location=device, weights_only=True))
@@ -97,9 +121,14 @@ def main():
             
     visual_tensor_batch = torch.stack(visual_tensors).to(device) if len(visual_tensors) > 0 and not args.no_visual else torch.empty((len(candidate_items), 0)).to(device)
 
+    if args.use_seq_user:
+        seq_tensor = torch.tensor([padded_seq] * len(candidate_items), dtype=torch.long).to(device)
+
     with torch.no_grad():
-        # Vì model expect 3 tham số. Trong trường hợp no_visual, visual tensor sẽ rỗng
-        scores = model(user_tensor, item_tensor, visual_tensor_batch)
+        if args.use_seq_user:
+            scores = model(user_tensor, seq_tensor, item_tensor, visual_tensor_batch)
+        else:
+            scores = model(user_tensor, item_tensor, visual_tensor_batch)
         scores = scores.squeeze().cpu().numpy()
 
     # 7. Sắp xếp điểm số

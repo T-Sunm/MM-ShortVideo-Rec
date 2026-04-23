@@ -6,7 +6,21 @@ import numpy as np
 from gmf import GMFEngine
 from mlp import MLPEngine
 from neumf import NeuMFEngine
+from seqneumf import SeqNeuMF
 from data import SampleGenerator
+from engine import Engine
+from utils import use_cuda
+
+class SeqNeuMFEngine(Engine):
+    """Engine for training & evaluating SeqNeuMF model"""
+    def __init__(self, config):
+        self.model = SeqNeuMF(config)
+        if config['use_cuda'] is True:
+            use_cuda(True, config['device_id'])
+            self.model.cuda()
+        super(SeqNeuMFEngine, self).__init__(config)
+        print(self.model)
+
 
 
 def parse_args():
@@ -20,6 +34,10 @@ def parse_args():
     parser.add_argument("--use_cuda",       action="store_true", default=False)
     parser.add_argument("--no_visual",      action="store_true", default=False,
                         help="Disable visual features (ablation study)")
+    
+    # SeqNeuMF arguments
+    parser.add_argument("--use_seq_user",   action="store_true", default=False,
+                        help="Use sequence-based user representation (SeqNeuMF)")
     return parser.parse_args()
 
 gmf_config = {'alias': 'gmf_factor8neg4-implict',
@@ -87,6 +105,30 @@ neumf_config = {'alias': 'neumf_factor8neg4',
                 'visual_dim': 768,
                 }
 
+seqneumf_config = {'alias': 'seqneumf_factor8neg4',
+                   'num_epoch': 1,
+                   'batch_size': 1024,
+                   'optimizer': 'adam',
+                   'adam_lr': 1e-3,
+                   'num_users': 6040,
+                   'num_items': 3706,
+                   'latent_dim_mf': 8,
+                   'latent_dim_mlp': 8,
+                   'num_negative': 4,
+                   'layers': [16, 64, 32, 16, 8],
+                   'l2_regularization': 0.0000001,
+                   'weight_init_gaussian': True,
+                   'use_cuda': True,
+                   'use_bachify_eval': True,
+                   'device_id': 0,
+                   'visual_dim': 768,
+                   'maxlen': 50,
+                   'seq_hidden_units': 50,
+                   'num_heads': 1,
+                   'num_blocks': 2,
+                   'dropout_rate': 0.2,
+                   'model_dir': 'checkpoints/{}_Epoch{}_HR{:.4f}_NDCG{:.4f}.model'}
+
 args = parse_args()
 
 # Load Data
@@ -118,21 +160,35 @@ else:
     orig_to_new  = dict(zip(item_id_map['item'], item_id_map['itemId']))
     visual_embeddings = {orig_to_new[k]: v for k, v in raw_visual.items() if k in orig_to_new}
 
+# Specify the exact model
+if args.use_seq_user:
+    config = seqneumf_config
+    config['use_seq_user'] = True
+else:
+    config = neumf_config
+
 # DataLoader for training
-sample_generator = SampleGenerator(ratings=ml1m_rating, visual_embeddings=visual_embeddings)
+maxlen = config.get('maxlen', 50)
+sample_generator = SampleGenerator(ratings=ml1m_rating, visual_embeddings=visual_embeddings, maxlen=maxlen)
 evaluate_data = sample_generator.evaluate_data
 
-# Specify the exact model
-config = neumf_config
 config['num_users']   = ml1m_rating['userId'].nunique()
 config['num_items']   = ml1m_rating['itemId'].nunique()
 config['num_epoch']   = args.num_epoch
 config['batch_size']  = args.batch_size
 config['use_cuda']    = args.use_cuda
 config['visual_dim']  = 0 if args.no_visual else 768
+
+if args.no_visual:
+    config['alias'] += '_novisual'
+
 config['model_dir']   = os.path.join(args.checkpoint_dir, '{}_Epoch{}_HR{:.4f}_NDCG{:.4f}.model')
 
-engine = NeuMFEngine(config)
+if args.use_seq_user:
+    engine = SeqNeuMFEngine(config)
+else:
+    engine = NeuMFEngine(config)
+
 for epoch in range(config['num_epoch']):
     print('Epoch {} starts !'.format(epoch))
     print('-' * 80)
