@@ -2,6 +2,7 @@ import os
 import zipfile
 import gdown
 import kagglehub
+import shutil
 
 def download_and_extract():
     # Xác định thư mục gốc của project (thư mục cha của 'utils')
@@ -33,12 +34,25 @@ def download_and_extract():
         print(f"\nKhông tìm thấy file {zip_path} để giải nén.")
 
     # 3. Tải dataset từ Kaggle
-    print(f"\nĐang tải dataset từ Kaggle (shuike520/microlens-100k-videos-part-1)...")
-    try:
-        kaggle_path = kagglehub.dataset_download("shuike520/microlens-100k-videos-part-1")
-        print(f"Dữ liệu Kaggle đã được tải về tại: {kaggle_path}")
-    except Exception as e:
-        print(f"Lỗi khi tải từ Kaggle: {e}")
+    kaggle_target_folder = os.path.join(target_dir, "MicroLens-100k_videos_Part_1")
+    if not os.path.exists(kaggle_target_folder):
+        print(f"\nĐang tải dataset từ Kaggle (shuike520/microlens-100k-videos-part-1)...")
+        try:
+            kaggle_path = kagglehub.dataset_download("shuike520/microlens-100k-videos-part-1")
+            print(f"Dữ liệu Kaggle đã được tải về tại: {kaggle_path}")
+            
+            # Di chuyển dữ liệu vào thư mục data/microlens-5k nếu chưa có
+            for item in os.listdir(kaggle_path):
+                s = os.path.join(kaggle_path, item)
+                d = os.path.join(target_dir, item)
+                if not os.path.exists(d):
+                    print(f"Đang di chuyển {item} sang {target_dir}...")
+                    shutil.move(s, d)
+            print("Đã hoàn tất sắp xếp dữ liệu Kaggle.")
+        except Exception as e:
+            print(f"Lỗi khi tải từ Kaggle: {e}")
+    else:
+        print(f"\nDữ liệu Kaggle đã tồn tại trong {kaggle_target_folder}, bỏ qua việc tải.")
 
     # 4. Kiểm tra lại cấu trúc thư mục local
     print(f"\nKiểm tra lại cấu trúc thư mục '{target_dir}':")
