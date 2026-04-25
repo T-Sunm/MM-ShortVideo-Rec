@@ -13,13 +13,13 @@ The architecture, denoted as Sequential Neural Matrix Factorization or SeqNeuMF,
 Detailed architectural diagrams of the implemented models are provided below:
 
 ### Standard NeuMF
-![NeuMF Architecture](assets/neumf.pdf)
+![NeuMF Architecture](assets/neumf.png)
 
 ### Multimodal NeuMF (M-NeuMF)
-![M-NeuMF Architecture](assets/m-neumf.pdf)
+![M-NeuMF Architecture](assets/m-neumf.png)
 
 ### Multimodal Sequential NeuMF (M-SeqNeuMF)
-![M-SeqNeuMF Architecture](assets/m-seqmf.pdf)
+![M-SeqNeuMF Architecture](assets/m-seqmf.png)
 
 ## Environment and Setup
 The environment is managed by the ``uv'' package manager. The dependencies are specified in the ``pyproject.toml'' and ``uv.lock'' files to ensure reproducibility. The environment setup is performed by the following commands.
