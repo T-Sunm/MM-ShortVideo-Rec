@@ -1,4 +1,6 @@
+import os
 import torch
+from datetime import datetime
 from torch.autograd import Variable
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
@@ -15,13 +17,15 @@ class Engine(object):
     def __init__(self, config):
         self.config = config  # model configuration
         self._metron = MetronAtK(top_k=10)
-        self._writer = SummaryWriter(log_dir='runs/{}'.format(config['alias']))  # tensorboard writer
+        run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self._writer = SummaryWriter(log_dir='runs/{}_{}'.format(config['alias'], run_id))  # tensorboard writer
         self._writer.add_text('config', str(config), 0)
         self.opt = use_optimizer(self.model, config)
         # explicit feedback
         # self.crit = torch.nn.MSELoss()
         # implicit feedback
         self.crit = torch.nn.BCELoss()
+        self._last_ckpt = None
 
     def train_single_batch(self, users, seqs, items, ratings, visuals):
         assert hasattr(self, 'model'), 'Please specify the exact model !'
@@ -51,7 +55,7 @@ class Engine(object):
             loss = self.train_single_batch(user, seq, item, rating, visual)
             print('[Training Epoch {}] Batch {}, Loss {}'.format(epoch_id, batch_id, loss))
             total_loss += loss
-        self._writer.add_scalar('model/loss', total_loss, epoch_id)
+        self._writer.add_scalar('model/loss', total_loss / len(train_loader), epoch_id)
 
     def evaluate(self, evaluate_data, epoch_id):
         assert hasattr(self, 'model'), 'Please specify the exact model !'
@@ -111,3 +115,11 @@ class Engine(object):
         assert hasattr(self, 'model'), 'Please specify the exact model !'
         model_dir = self.config['model_dir'].format(alias, epoch_id, hit_ratio, ndcg)
         save_checkpoint(self.model, model_dir)
+        
+        # Xoá checkpoint cũ nếu có
+        if self._last_ckpt is not None and os.path.exists(self._last_ckpt):
+            try:
+                os.remove(self._last_ckpt)
+            except OSError:
+                pass
+        self._last_ckpt = model_dir

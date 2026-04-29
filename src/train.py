@@ -7,7 +7,7 @@ from gmf import GMFEngine
 from mlp import MLPEngine
 from neumf import NeuMFEngine
 from seqneumf import SeqNeuMF
-from data import SampleGenerator
+from data_utils import SampleGenerator
 from engine import Engine
 from utils import use_cuda
 
