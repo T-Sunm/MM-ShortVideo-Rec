@@ -1,20 +1,38 @@
-# SeqNeuMF (Visual) — Colab Notebook từ Scratch
+I. Thực hành xây dựng SeqNeuMF cơ bản
+Trong phần này, chúng ta thực hành một pipeline hệ thống gợi ý tối giản trên dữ liệu tương tác video. Mục tiêu của bài thực hành là giúp người học nắm được toàn bộ quy trình bao gồm từ việc tải dữ liệu, tiền xử lý, xây dựng kiến trúc mô hình SeqNeuMF kết hợp đặc trưng hình ảnh, cho đến vòng lặp huấn luyện, đánh giá và gợi ý video thực tế.
 
-> Giả sử data đã tải về `dataset/` như notebook mẫu (pairs.csv, visual_embeddings.pt, titles.csv).  
-> Copy từng cell vào Colab theo thứ tự.
+Kiến trúc mô hình trong bài thực hành được lấy cảm hứng từ hai công trình nền tảng là [Neural Collaborative Filtering](https://arxiv.org/abs/1708.05031) và [Self-Attentive Sequential Recommendation](https://arxiv.org/abs/1808.09781). Toàn bộ pipeline được xây dựng và đánh giá trên tập dữ liệu nền tảng dành cho video ngắn [MicroLens](https://arxiv.org/abs/2309.15379).
 
----
+<p align="center">
+  <img src="../assets/m-seqmf.png" alt="Kiến trúc SeqNeuMF" width="80%">
+  <br>
+  Hình 1. Sơ đồ kiến trúc tổng quan của mô hình SeqNeuMF.
+</p>
 
-## Cell 1 — Cài dependencies
+> **Lưu ý -** Hãy chạy các khối mã hay cell theo đúng thứ tự. Nếu bạn dùng GPU của Colab, thời gian huấn luyện sẽ được rút ngắn.
+
+
+Bước 1 - Tải dữ liệu giả định
+Khối này hỗ trợ tải bộ dataset về môi trường Colab bao gồm `pairs.csv`, `visual_embeddings.pt`, `titles.csv`. Sau khi chạy, thư mục `/content/dataset/` sẽ chứa các file dữ liệu cần thiết để chuẩn bị cho quá trình xây dựng và huấn luyện mô hình.
+
+```bash
+# Ví dụ tải data (bỏ comment để chạy nếu cần)
+# !mkdir -p /content/dataset
+# !wget -q -O /content/dataset/pairs.csv <URL>
+# !wget -q -O /content/dataset/visual_embeddings.pt <URL>
+# !wget -q -O /content/dataset/titles.csv <URL>
+```
+
+Bước 2 - Cài đặt dependencies
+Khối tiếp theo cài đặt thư viện `tensorboardX` để hỗ trợ ghi log, đồng thời tạo sẵn thư mục `checkpoints` để hệ thống lưu lại weights của mô hình đạt kết quả cao trong quá trình huấn luyện.
 
 ```python
 !pip install -q tensorboardX
 !mkdir -p /content/checkpoints
 ```
 
----
-
-## Cell 2 — Imports & Config
+Bước 3 - Import thư viện và thiết lập cấu hình
+Phần này import toàn bộ các thư viện cần thiết và cấu hình hyper-parameters. Tại đây, ta cố định các thông số huấn luyện như batch size, learning rate, số lượng layer, tuỳ chọn kiến trúc như dùng GPU hay không và khởi tạo seed để dễ dàng tái tạo lại kết quả.
 
 ```python
 import os, math, random
@@ -64,9 +82,8 @@ VISUAL_DIM = config['visual_dim']
 print("Device:", DEVICE)
 ```
 
----
-
-## Cell 3 — Load & Preprocess Data
+Bước 4 - Tải và tiền xử lý dữ liệu tương tác
+Đọc tệp tương tác `pairs.csv` giữa người dùng và video. Sau đó reindex chuỗi ID gốc thành các số nguyên liên tục từ `0` đến `N-1` để tiện đưa vào các lớp Embedding của PyTorch, và in ra số lượng user và item tổng quát.
 
 ```python
 interactions = pd.read_csv(os.path.join(DATA_DIR, 'pairs.csv'))
@@ -92,9 +109,8 @@ config['num_users'] = ml_ratings['userId'].nunique()
 config['num_items'] = ml_ratings['itemId'].nunique()
 ```
 
----
-
-## Cell 4 — Load Visual Embeddings
+Bước 5 - Nạp đặc trưng hình ảnh
+Nạp các vector đặc trưng hình ảnh `visual_embeddings.pt` đã được trích xuất sẵn từ cover của các video. Các ID video tại đây cũng được chuyển đổi sang ID mới đồng bộ với khối trước để mô hình tra cứu nhanh chóng.
 
 ```python
 raw_visual   = torch.load(os.path.join(DATA_DIR, 'visual_embeddings.pt'), weights_only=False)
@@ -106,9 +122,8 @@ sample_v = next(iter(visual_embeddings.values()))
 print(f"Embedding dim: {sample_v.shape}")
 ```
 
----
-
-## Cell 5 — Dataset & DataLoader
+Bước 6 - Khởi tạo Dataset và DataLoader
+Định nghĩa các đối tượng `Dataset` và `DataLoader`. Khối này thực hiện bước chuẩn bị quan trọng: chia dữ liệu huấn luyện và đánh giá bằng leave-one-out, negative sampling, cũng như trích xuất sequence cho từng người dùng.
 
 ```python
 class UserItemRatingDataset(Dataset):
@@ -224,9 +239,8 @@ evaluate_data    = sample_generator.evaluate_data
 print("Done.")
 ```
 
----
-
-## Cell 6 — Model Definition (SeqNeuMF)
+Bước 7 - Xây dựng kiến trúc mô hình SeqNeuMF
+Đây là khối khai báo lõi kiến trúc của hệ thống. Mô hình `SeqNeuMF` chia thành hai thành phần chính: `SequentialEncoder` để mô hình hóa chuỗi hành vi của người dùng, kết hợp với mạng NeuMF/GMF kết hợp Visual Fusion để đưa ra dự đoán sau cùng.
 
 ```python
 class SequentialEncoder(nn.Module):
@@ -331,9 +345,8 @@ model = SeqNeuMF(config).to(DEVICE)
 print(model)
 ```
 
----
-
-## Cell 7 — Metrics
+Bước 8 - Định nghĩa các thang đo đánh giá
+Khởi tạo công cụ đo lường hiệu suất `MetronAtK`. Dựa trên danh sách các target item và các negative item được dự đoán điểm số, lớp này sẽ tiến hành ranking và tính toán hai độ đo chuẩn trong hệ thống gợi ý: HR@10 và NDCG@10.
 
 ```python
 class MetronAtK:
@@ -373,9 +386,8 @@ class MetronAtK:
 metron = MetronAtK(top_k=10)
 ```
 
----
-
-## Cell 8 — Optimizer & Helpers
+Bước 9 - Thiết lập hàm mất mát và bộ tối ưu hóa
+Tạo Optimizer theo thuật toán Adam dựa trên cấu hình ở phía trên. Loss Function được sử dụng là Binary Cross Entropy chẳng hạn như `BCELoss`, phù hợp đối với bài toán dự đoán xác suất tương tác.
 
 ```python
 def use_optimizer(model, config):
@@ -393,9 +405,8 @@ optimizer = use_optimizer(model, config)
 criterion = nn.BCELoss()
 ```
 
----
-
-## Cell 9 — Training Loop
+Bước 10 - Xây dựng vòng lặp huấn luyện
+Khối mã này chứa hai hàm `train_epoch` và `evaluate` cấu thành nên toàn bộ vòng lặp huấn luyện chính. Sau mỗi epoch, chương trình dùng tập test để tính toán độ đo, in ra tiến trình, và tự động lưu lại model checkpoint vào thư mục `checkpoints` nếu kết quả tốt hơn.
 
 ```python
 def train_epoch(model, train_loader, optimizer, criterion, epoch_id, device):
@@ -473,9 +484,15 @@ for epoch in range(config['num_epoch']):
 print(f"\nBest HR@10 = {best_hr:.4f}  →  {best_ckpt}")
 ```
 
----
+<p align="center">
+  <img src="../assets/loss.png" width="48%">
+  <img src="../assets/hr_ndcg.png" width="48%">
+  <br>
+  Hình 2. Biểu đồ giá trị Loss và các độ đo HR@10, NDCG@10 trong quá trình huấn luyện.
+</p>
 
-## Cell 10 — Inference (cho một user cụ thể)
+Bước 11 - Suy luận và gợi ý cho người dùng cụ thể
+Phần này thực hiện quá trình Inference cho một ID người dùng bất kỳ. Bằng cách tra cứu lịch sử, loại bỏ các video họ đã xem, mô hình sẽ tính toán điểm số cho các video còn lại và trả về top 10 video phù hợp để gợi ý.
 
 ```python
 # ── CONFIG ────────────────────────────────────────────────────────────────────
@@ -558,3 +575,9 @@ for rank, (iid, score) in enumerate(top_k_pairs, 1):
     print(f"  {rank:2d}. [Score: {score:.4f}]  {get_title(iid)}")
 print('='*55)
 ```
+
+<p align="center">
+  <img src="../assets/results.png" width="80%">
+  <br>
+  Hình 3. Kết quả gợi ý top 10 video cho một người dùng cụ thể.
+</p>
