@@ -579,5 +579,5 @@ print('='*55)
 <p align="center">
   <img src="../assets/results.png" width="80%">
   <br>
-  Hình 3. Kết quả gợi ý top 10 video cho một người dùng cụ thể.
+  Hình 3. Kết quả gợi ý video cho user có ID = 1001. Hình ảnh minh họa kết quả đầu ra của mô hình khi được triển khai thành giao diện ứng dụng web thực tế. Chi tiết mã nguồn tại <a href="https://github.com/T-Sunm/MM-ShortVideo-Rec">T-Sunm/MM-ShortVideo-Rec</a>.
 </p>
