@@ -27,7 +27,7 @@ uv sync
 The MicroLens-5k dataset is utilized for empirical validation. The raw dataset is downloaded and extracted into the ``data/microlens-5k'' directory. The download process is automated by a utility script.
 
 ```bash
-python utils/download_data.py
+uv run python utils/download_data.py
 ```
 
 The input data must contain user interaction sequences. Data preprocessing is handled internally by the data loader module before being passed to the model.
