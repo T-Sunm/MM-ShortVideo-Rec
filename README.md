@@ -76,6 +76,14 @@ python src/inference.py --user_id "user_id_here" --checkpoint "checkpoints/m_neu
 python src/inference.py --use_seq_user --user_id "user_id_here" --checkpoint "checkpoints/m_seqmf_model.model"
 ```
 
+### Workbench (UI)
+
+An interactive Streamlit-based workbench is provided to explore the dataset and visualize recommendations.
+
+```bash
+streamlit run src/app.py
+```
+
 ## Project Structure
 
 The directory tree of the source code is presented below.
@@ -85,14 +93,18 @@ MM-ShortVideo-Rec/
 ├── data/
 │   └── microlens-5k/
 ├── src/
-│   ├── data.py
-│   ├── engine.py
-│   ├── inference.py
-│   ├── metrics.py
-│   ├── mlp.py
-│   ├── neumf.py
-│   ├── seqneumf.py
-│   └── train.py
+│   ├── components/      # Reusable UI components
+│   ├── pages/           # Streamlit page definitions
+│   ├── services/        # Backend logic for recommendations
+│   ├── state/           # Session state management
+│   ├── app.py           # Streamlit entrypoint
+│   ├── data_utils.py    # Data loading utilities
+│   ├── engine.py        # Training engine
+│   ├── inference.py     # Inference script
+│   ├── metrics.py       # Evaluation metrics
+│   ├── neumf.py         # NeuMF model definition
+│   ├── seqneumf.py      # Sequential NeuMF model definition
+│   └── train.py         # Training script
 ├── utils/
 │   └── download_data.py
 ├── pyproject.toml
