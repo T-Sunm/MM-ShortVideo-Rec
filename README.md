@@ -4,22 +4,15 @@
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 ## Abstract
-A recommendation framework designed for short video platforms is introduced. The system utilizes a Transformer-based architecture to capture dynamic preferences of users and a neural matrix factorization component to model static interactions between users and items. The approach processes historical interaction sequences to improve recommendation accuracy.
+A Multimodal Sequential Recommendation framework designed for short video platforms is introduced. The system utilizes a Transformer-based architecture to capture dynamic preferences of users from historical interactions, while integrating visual features from video covers to enhance item representations. By combining sequential patterns with a neural matrix factorization component, the approach effectively models multimodal user-item interactions to improve recommendation accuracy.
 
 ## Methodology
-The architecture, denoted as Sequential Neural Matrix Factorization or SeqNeuMF, integrates a sequential encoder with Neural Matrix Factorization. The sequence of historical user interactions is processed by a self-attention mechanism to generate a dynamic representation of the user. This dynamic representation is concatenated with a static embedding of the user. The combined features are passed through multi-layer perceptrons to predict the interaction probability with target items.
+The core architecture, Multimodal Sequential Neural Matrix Factorization (M-SeqNeuMF), integrates a Transformer-based sequential encoder with Neural Matrix Factorization. This architecture is inspired by foundational works including [Neural Collaborative Filtering](https://arxiv.org/abs/1708.05031) and [Self-Attentive Sequential Recommendation](https://arxiv.org/abs/1808.09781), and is evaluated on the short video dataset [MicroLens](https://arxiv.org/abs/2309.15379). The sequence of historical user interactions is processed by a self-attention mechanism to generate a dynamic representation of the user. On the item side, visual embeddings are fused with item ID embeddings to enrich the item representation. The combined features are then passed through multi-layer perceptrons (MLP) and matrix factorization branches to predict the interaction probability with target items.
 
-
-Detailed architectural diagrams of the implemented models are provided below:
-
-### Standard NeuMF
-![NeuMF Architecture](assets/neumf.png)
-
-### Multimodal NeuMF (M-NeuMF)
-![M-NeuMF Architecture](assets/m-neumf.png)
-
-### Multimodal Sequential NeuMF (M-SeqNeuMF)
-![M-SeqNeuMF Architecture](assets/m-seqmf.png)
+### Architecture Overview
+<p align="center">
+  <img src="assets/m-seqmf.png" alt="M-SeqNeuMF Architecture" width="80%">
+</p>
 
 ## Environment and Setup
 The environment is managed by the ``uv'' package manager. The dependencies are specified in the ``pyproject.toml'' and ``uv.lock'' files to ensure reproducibility. The environment setup is performed by the following commands.
